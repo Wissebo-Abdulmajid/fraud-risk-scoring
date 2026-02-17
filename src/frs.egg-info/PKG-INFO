@@ -1,0 +1,29 @@
+Metadata-Version: 2.4
+Name: frs
+Version: 0.1.0
+Summary: Fraud / Risk Scoring System with Calibration
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+
+# Fraud / Risk Scoring System with Calibration
+
+A production-adjacent tabular ML system that outputs **calibrated fraud/risk probabilities** and a **decision policy**
+(review / block / approve) using **cost-sensitive thresholding** and **error analysis**.
+
+## What this is
+- Train + evaluate a tabular classifier
+- Calibrate probabilities (Platt / isotonic)
+- Select thresholds under cost / review-capacity constraints
+- Generate reproducible artifacts + reports
+- Batch scoring via CLI
+
+## What this is NOT
+- Not an enterprise platform (no Kafka/feature store)
+- Not a claim of perfect fraud detection (labels are noisy + adversarial)
+- Not “AI magic”; the repo emphasizes limitations and honest evaluation
+
+## Quickstart (will be implemented)
+```bash
+frs train --config configs/base.yaml
+frs evaluate --run-dir runs/<run_id>
+frs score --run-dir runs/<run_id> --input data/sample/sample.csv --output scored.csv

@@ -1,0 +1,2 @@
+[console_scripts]
+frs = frs.cli:main

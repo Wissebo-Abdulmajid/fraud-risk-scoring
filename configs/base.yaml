@@ -1,0 +1,62 @@
+project:
+  name: fraud-risk-calibrated
+  seed: 42
+
+data:
+  path: data/creditcard.csv
+  target: Class
+  time_col: Time
+  id_col: null
+
+split:
+  strategy: time
+  test_size: 0.2
+  val_size: 0.2
+
+backtest:
+  train_start_frac: 0.50
+  step_frac: 0.05
+  val_frac: 0.10
+  test_frac: 0.10
+  threshold_ema_alpha: 0.70
+
+features:
+  numeric: []
+  categorical: []
+  exclude: ["Time"]
+  keep_only: []          # optional allowlist
+  force_numeric: []      # optional
+  force_categorical: []
+
+model:
+  name: lightgbm
+  params:
+    n_estimators: 800
+    learning_rate: 0.03
+    num_leaves: 63
+    max_depth: -1
+    min_child_samples: 20
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_lambda: 1.0
+    verbosity: -1
+
+calibration:
+  enabled: true
+  method: sigmoid
+
+policy:
+  mode: cost
+  cost_fp: 1.0
+  cost_fn: 10.0
+  top_k: 0.01
+
+  # ops constraints (keep these if you want guardrails)
+  threshold_grid_size: 401
+  min_alert_rate: 0.0008
+  max_alert_rate: 0.0015
+
+  # drift-adaptive
+  prior_shift_enabled: true
+  prior_shift_source: val
+

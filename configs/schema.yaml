@@ -1,0 +1,4 @@
+schema:
+  required_columns:
+    - label
+  optional_columns: []
