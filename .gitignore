@@ -5,6 +5,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Packaging artifacts
+*.egg-info/
+dist/
+build/
+
 # Virtual env
 .venv/
 venv/

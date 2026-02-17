@@ -1,4 +1,4 @@
 schema:
   required_columns:
-    - label
+    - Class
   optional_columns: []

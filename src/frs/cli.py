@@ -22,6 +22,7 @@ from frs.drift import drift_report_numeric, drift_report_proba
 from frs.evaluation import compute_metrics
 from frs.features import infer_features  # keep only infer here; we'll refactor features.py next
 from frs.logging_setup import setup_logging
+from frs.reporting import build_report_from_run
 from frs.models import build_preprocessor, train_lightgbm, train_logreg
 from frs.policy import (
     DecisionPolicy,
@@ -379,6 +380,8 @@ def train_cmd(
         val_proba = val_base
         test_proba = test_base
         calibrator = None
+        metrics_dict["calibrated"] = bool(calibrator is not None)
+        metrics_dict["calibration_method"] = cfg.calibration.method if calibrator is not None else None
 
     # Prior-shift correction (optional)
     if getattr(cfg.policy, "prior_shift_enabled", False):
@@ -695,6 +698,20 @@ def backtest_cmd(
 
     rprint(f"[green]Backtest saved:[/green] {out_dir}")
     rprint(summary)
+
+@app.command("report")
+def report_cmd(
+    run_dir: Path = typer.Option(..., "--run-dir", exists=True, help="Path to a run directory (contains metrics.json)"),
+    out: Path = typer.Option(..., "--out", help="Output report folder (e.g., reports/<run_id>)"),
+    include_backtest: bool = typer.Option(True, "--include-backtest/--no-backtest", help="Include backtest artifacts if present"),
+):
+    """
+    Generate a portfolio-grade report (REPORT.md + figures) from a saved run directory.
+    """
+    log = setup_logging()
+    rp = build_report_from_run(run_dir=run_dir, out_dir=out, include_backtest=include_backtest)
+    log.info("Report written: %s", rp.report_md)
+    rprint(f"[green]Report created:[/green] {rp.report_md}")
 
 
 @app.command("evaluate")
