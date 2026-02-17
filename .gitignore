@@ -17,6 +17,16 @@ data/raw/
 data/**/*.parquet
 data/**/*.feather
 
+# datasets (keep public repo small)
+data/creditcard.csv
+data/raw/
+data/raw/**
+
+# allow demo samples
+!data/sample/
+!data/sample/**
+
+
 # OS / editor
 .DS_Store
 Thumbs.db
