@@ -34,7 +34,6 @@ from frs.splits import stratified_train_val_test_split, time_train_val_test_spli
 
 app = typer.Typer(add_completion=False, help="Fraud / Risk Scoring System (FRS) CLI")
 
-
 # ----------------------------
 # Helpers (self-contained)
 # ----------------------------
@@ -267,17 +266,7 @@ def _choose_threshold_cost_wrapper(
 def _get_features(cfg, df: pd.DataFrame, log) -> tuple[list[str], list[str]]:
     """
     Decide which columns are features (used by BOTH train + backtest).
-
-    Rules:
-    1) If YAML provides features.numeric/features.categorical => use them.
-    2) Otherwise infer types from the dataframe.
-    3) Always exclude columns that must never be model inputs:
-       - target
-       - time_col (if provided)
-       - id_col (if provided)
-       - anything in cfg.features.exclude (if present)
     """
-    # 1) infer vs configured
     if not cfg.features.numeric and not cfg.features.categorical:
         fs = infer_features(df, cfg.data.target)
         numeric = list(fs.numeric)
@@ -288,7 +277,6 @@ def _get_features(cfg, df: pd.DataFrame, log) -> tuple[list[str], list[str]]:
         categorical = list(cfg.features.categorical)
         log.info("Configured features: numeric=%d categorical=%d", len(numeric), len(categorical))
 
-    # 2) build exclusion set
     exclude = set(getattr(cfg.features, "exclude", []) or [])
     exclude.add(str(cfg.data.target))
 
@@ -298,7 +286,6 @@ def _get_features(cfg, df: pd.DataFrame, log) -> tuple[list[str], list[str]]:
     if cfg.data.id_col and str(cfg.data.id_col).strip():
         exclude.add(str(cfg.data.id_col))
 
-    # 3) filter out
     numeric = [c for c in numeric if c not in exclude]
     categorical = [c for c in categorical if c not in exclude]
 
@@ -348,7 +335,6 @@ def train_cmd(
 
     pre = build_preprocessor(numeric=numeric, categorical=categorical)
 
-    # Optional baseline training (useful later for comparison; not used in scoring)
     _ = train_logreg(X_train, y_train, preprocessor=pre, seed=cfg.project.seed)
 
     if cfg.model.name == "lightgbm":
@@ -362,11 +348,10 @@ def train_cmd(
     else:
         model = train_logreg(X_train, y_train, preprocessor=pre, seed=cfg.project.seed)
 
-    # Base probabilities
     val_base = predict_proba(model.pipeline, X_val)
     test_base = predict_proba(model.pipeline, X_test)
 
-    # Calibration
+    # Calibration (FIXED: no use of metrics_dict here)
     if cfg.calibration.enabled:
         cal = fit_calibrator(
             y_true=y_val,
@@ -380,8 +365,6 @@ def train_cmd(
         val_proba = val_base
         test_proba = test_base
         calibrator = None
-        metrics_dict["calibrated"] = bool(calibrator is not None)
-        metrics_dict["calibration_method"] = cfg.calibration.method if calibrator is not None else None
 
     # Prior-shift correction (optional)
     if getattr(cfg.policy, "prior_shift_enabled", False):
@@ -429,6 +412,11 @@ def train_cmd(
     )
 
     metrics_dict = _safe_metrics_to_dict(metrics)
+
+    # (ADDED in correct place) calibration metadata
+    metrics_dict["calibrated"] = bool(calibrator is not None)
+    metrics_dict["calibration_method"] = cfg.calibration.method if calibrator is not None else None
+
     metrics_dict["expected_cost"] = _expected_cost(
         y_true=y_test.astype(int),
         y_pred=y_pred,
@@ -439,7 +427,6 @@ def train_cmd(
     metrics_dict["base_rate"] = float(np.mean(y_test.astype(int)))
     metrics_dict["split_mode"] = "time" if (cfg.data.time_col and str(cfg.data.time_col).strip()) else "stratified"
 
-    # Drift signals (train vs test)
     drift = {
         "numeric": drift_report_numeric(split.train, split.test, numeric_cols=numeric, ks_alpha=0.05, ks_min=0.10),
         "proba": drift_report_proba(val_proba, test_proba),
@@ -469,9 +456,7 @@ def train_cmd(
 def backtest_cmd(
     config: Path = typer.Option(..., "--config", "-c", exists=True, help="Path to YAML config"),
     folds: int = typer.Option(3, "--folds", min=2, max=10, help="Number of walk-forward folds"),
-    train_start_frac: float | None = typer.Option(
-        None, "--train-start-frac", help="Initial train window fraction (overrides config)"
-    ),
+    train_start_frac: float | None = typer.Option(None, "--train-start-frac", help="Initial train window fraction (overrides config)"),
     step_frac: float | None = typer.Option(None, "--step-frac", help="How much train end moves forward each fold (overrides config)"),
     val_frac: float | None = typer.Option(None, "--val-frac", help="Validation window fraction (overrides config)"),
     test_frac: float | None = typer.Option(None, "--test-frac", help="Test window fraction (overrides config)"),
@@ -486,7 +471,6 @@ def backtest_cmd(
     if not cfg.data.time_col or not str(cfg.data.time_col).strip():
         raise ValueError("backtest requires data.time_col (e.g., Time). Set it in your YAML config.")
 
-    # Use config defaults unless CLI overrides are provided
     bt = getattr(cfg, "backtest", None)
     if bt is None:
         bt_train_start, bt_step, bt_val, bt_test = 0.50, 0.05, 0.10, 0.10
@@ -577,7 +561,6 @@ def backtest_cmd(
         val_base = predict_proba(model.pipeline, X_val)
         test_base = predict_proba(model.pipeline, X_test)
 
-        # Calibration
         if cfg.calibration.enabled:
             cal = fit_calibrator(y_true=y_val, proba=val_base, method=cfg.calibration.method)
             val_proba = apply_calibrator(cal, val_base)
@@ -586,7 +569,6 @@ def backtest_cmd(
             val_proba = val_base
             test_proba = test_base
 
-        # Prior-shift correction (fold-local, optional)
         if getattr(cfg.policy, "prior_shift_enabled", False):
             pi_train = float(np.mean(y_train.astype(int)))
             src = getattr(cfg.policy, "prior_shift_source", "val")
@@ -600,7 +582,6 @@ def backtest_cmd(
             val_proba = adjust_proba_for_prior_shift(val_proba, pi_train=pi_train, pi_target=pi_target)
             test_proba = adjust_proba_for_prior_shift(test_proba, pi_train=pi_train, pi_target=pi_target)
 
-        # Threshold selection (guardrails + optional EMA smoothing)
         if cfg.policy.mode == "cost":
             thr_raw = _choose_threshold_cost_wrapper(
                 y_true=y_val.astype(int),
@@ -683,14 +664,14 @@ def backtest_cmd(
     ]:
         if col in dfm.columns:
             summary[f"{col}_mean"] = float(dfm[col].mean())
-            summary[f"{col}_std"] = float(dfm[col].std(ddof=1)) if len(dfm) > 1 else 0.0
+            summary[f"{col}_std"] = float(dfm[col].std(ddof=1)) if len(fold_records) > 1 else 0.0
 
     if "threshold_raw" in dfm.columns:
         summary["threshold_raw_mean"] = float(dfm["threshold_raw"].mean())
-        summary["threshold_raw_std"] = float(dfm["threshold_raw"].std(ddof=1)) if len(dfm) > 1 else 0.0
+        summary["threshold_raw_std"] = float(dfm["threshold_raw"].std(ddof=1)) if len(fold_records) > 1 else 0.0
     if "threshold_ema" in dfm.columns:
         summary["threshold_ema_mean"] = float(dfm["threshold_ema"].mean())
-        summary["threshold_ema_std"] = float(dfm["threshold_ema"].std(ddof=1)) if len(dfm) > 1 else 0.0
+        summary["threshold_ema_std"] = float(dfm["threshold_ema"].std(ddof=1)) if len(fold_records) > 1 else 0.0
         summary["threshold_ema_alpha"] = float(alpha)
 
     save_yaml(run_dir / "config.resolved.yaml", cfg.model_dump())
@@ -698,6 +679,7 @@ def backtest_cmd(
 
     rprint(f"[green]Backtest saved:[/green] {out_dir}")
     rprint(summary)
+
 
 @app.command("report")
 def report_cmd(
@@ -726,15 +708,6 @@ def score_cmd(
 ):
     """
     Score new data using a saved run bundle (pipeline + optional calibrator + policy threshold).
-
-    Output columns added:
-      - risk_proba : calibrated probability (if calibrator exists), else raw model proba
-      - alert      : 1 if risk_proba >= threshold else 0
-      - threshold  : threshold used
-      - model_name : model identifier
-      - run_dir    : run directory used
-
-    If --label-col is provided and exists in input, saves metrics as well.
     """
     log = setup_logging()
 
@@ -765,14 +738,11 @@ def score_cmd(
     categorical = list(feature_spec["categorical"])
     required_cols = numeric + categorical
 
-    # threshold used
     thr_used = float(threshold) if threshold is not None else float(policy["threshold"])
 
-    # --- Load input
     df_in = pd.read_csv(input_path)
     log.info("Loaded input: rows=%d cols=%d", df_in.shape[0], df_in.shape[1])
 
-    # --- Label handling (optional)
     y_true = None
     if label_col:
         if label_col in df_in.columns:
@@ -780,7 +750,6 @@ def score_cmd(
         else:
             raise ValueError(f"--label-col was provided as {label_col!r} but that column is not in input CSV.")
 
-    # --- Validate required feature columns
     missing = [c for c in required_cols if c not in df_in.columns]
     if missing:
         raise ValueError(
@@ -789,7 +758,6 @@ def score_cmd(
             f"Expected features ({len(required_cols)}): {required_cols}"
         )
 
-    # --- Predict probabilities
     X = df_in.copy()
     proba_base = predict_proba(pipeline, X)
 
@@ -803,7 +771,6 @@ def score_cmd(
     proba = np.asarray(proba, dtype=float)
     alert = (proba >= thr_used).astype(int)
 
-    # --- Write output CSV
     df_out = df_in.copy()
     df_out["risk_proba"] = proba
     df_out["alert"] = alert
@@ -814,7 +781,6 @@ def score_cmd(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df_out.to_csv(output_path, index=False)
 
-    # --- Summary JSON (optional but recommended)
     summary: dict[str, Any] = {
         "run_dir": str(run_dir),
         "model_name": str(model_name),
@@ -829,7 +795,6 @@ def score_cmd(
         "calibrated": bool(calibrator is not None),
     }
 
-    # --- If labels provided, compute metrics too
     if y_true is not None:
         unique = set(np.unique(np.asarray(y_true)))
         if not unique.issubset({0, 1, True, False}):
@@ -866,6 +831,49 @@ def score_cmd(
             "threshold": summary["threshold"],
         }
     )
+
+
+@app.command("explain")
+def explain_cli(
+    run_dir: Path = typer.Option(..., "--run-dir", exists=True, help="Path to a training run directory (contains bundle.joblib)"),
+    input_path: Path = typer.Option(..., "--input", exists=True, help="CSV file to explain (preferably scored; must contain required feature cols)"),
+    output_path: Path | None = typer.Option(None, "--out", help="Where to write explanation CSV (default: <run_dir>/explain/explanations.csv)"),
+    summary_path: Path | None = typer.Option(None, "--summary", help="Where to write explain summary JSON (default: <run_dir>/explain/explain_summary.json)"),
+    figures_dir: Path | None = typer.Option(None, "--figures", help="Where to save SHAP figures (default: <run_dir>/explain/figures)"),
+    method: str = typer.Option("auto", "--method", help="SHAP method: auto, tree, permutation"),
+    top_k: int = typer.Option(10, "--top-k", min=1, max=50, help="Top-K features to include per row"),
+    max_rows: int = typer.Option(2000, "--max-rows", min=100, max=20000, help="Max rows for explainability runtime"),
+):
+    """
+    Generate SHAP explainability artifacts for a (scored) CSV.
+    """
+    log = setup_logging()
+
+    out_csv = output_path if output_path is not None else (run_dir / "explain" / "explanations.csv")
+    out_json = summary_path if summary_path is not None else (run_dir / "explain" / "explain_summary.json")
+    figs = figures_dir if figures_dir is not None else (run_dir / "explain" / "figures")
+
+    from frs.explainability import explain_cmd  # engine function
+
+    res = explain_cmd(
+        run_dir=run_dir,
+        input_path=input_path,
+        output_path=out_csv,
+        summary_path=out_json,
+        figures_dir=figs,
+        top_k=int(top_k),
+        max_rows=int(max_rows),
+        method=method,
+    )
+
+    log.info("Explainability CSV saved: %s", res.out_csv)
+    log.info("Explainability summary saved: %s", res.out_json)
+    log.info("Figures saved in: %s", res.figures_dir)
+
+    rprint(f"[green]Explainability CSV saved:[/green] {res.out_csv}")
+    rprint(f"[green]Explainability summary saved:[/green] {res.out_json}")
+    rprint(f"[green]Figures saved in:[/green] {res.figures_dir}")
+
 
 def main() -> None:
     app()

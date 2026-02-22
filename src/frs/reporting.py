@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import json
+import shutil
 import numpy as np
 
 
@@ -52,81 +53,15 @@ def _fmt(x: Any, nd: int = 4) -> str:
         return str(x)
 
 
-def _plot_score_hist(fig_path: Path, proba: np.ndarray, threshold: float) -> None:
-    import matplotlib.pyplot as plt
-
-    proba = np.asarray(proba, dtype=float)
-    fig_path.parent.mkdir(parents=True, exist_ok=True)
-
-    plt.figure()
-    plt.hist(proba, bins=50)
-    plt.axvline(float(threshold))
-    plt.title("Score distribution (risk_proba)")
-    plt.xlabel("risk_proba")
-    plt.ylabel("count")
-    plt.tight_layout()
-    plt.savefig(fig_path, dpi=180)
-    plt.close()
-
-
-def _plot_pr(fig_path: Path, y_true: np.ndarray, proba: np.ndarray) -> None:
-    import matplotlib.pyplot as plt
-    from sklearn.metrics import precision_recall_curve
-
-    y_true = np.asarray(y_true, dtype=int)
-    proba = np.asarray(proba, dtype=float)
-    p, r, _ = precision_recall_curve(y_true, proba)
-
-    fig_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.figure()
-    plt.plot(r, p)
-    plt.title("Precision–Recall curve")
-    plt.xlabel("Recall")
-    plt.ylabel("Precision")
-    plt.tight_layout()
-    plt.savefig(fig_path, dpi=180)
-    plt.close()
-
-
-def _plot_roc(fig_path: Path, y_true: np.ndarray, proba: np.ndarray) -> None:
-    import matplotlib.pyplot as plt
-    from sklearn.metrics import roc_curve
-
-    y_true = np.asarray(y_true, dtype=int)
-    proba = np.asarray(proba, dtype=float)
-    fpr, tpr, _ = roc_curve(y_true, proba)
-
-    fig_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.figure()
-    plt.plot(fpr, tpr)
-    plt.title("ROC curve")
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.tight_layout()
-    plt.savefig(fig_path, dpi=180)
-    plt.close()
-
-
-def _plot_calibration(fig_path: Path, y_true: np.ndarray, proba: np.ndarray) -> None:
-    import matplotlib.pyplot as plt
-    from sklearn.calibration import calibration_curve
-
-    y_true = np.asarray(y_true, dtype=int)
-    proba = np.asarray(proba, dtype=float)
-
-    frac_pos, mean_pred = calibration_curve(y_true, proba, n_bins=10, strategy="quantile")
-
-    fig_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.figure()
-    plt.plot(mean_pred, frac_pos)
-    # perfect calibration diagonal
-    plt.plot([0, 1], [0, 1])
-    plt.title("Calibration curve")
-    plt.xlabel("Mean predicted probability")
-    plt.ylabel("Fraction of positives")
-    plt.tight_layout()
-    plt.savefig(fig_path, dpi=180)
-    plt.close()
+def _copy_if_exists(src: Path, dst: Path) -> bool:
+    try:
+        if src.exists() and src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+            return True
+    except Exception:
+        return False
+    return False
 
 
 def build_report_from_run(
@@ -135,17 +70,7 @@ def build_report_from_run(
     out_dir: Path,
     include_backtest: bool = True,
 ) -> ReportPaths:
-    """
-    Build a portfolio-grade report from an existing run directory.
 
-    Expected inputs from train/backtest commands:
-      - run_dir/metrics.json
-      - run_dir/config.resolved.yaml (optional, not parsed here)
-      - run_dir/drift.json (optional)
-      - run_dir/backtest/summary.json (optional)
-      - run_dir/backtest/fold_metrics.jsonl (optional)
-      - run_dir/backtest/*.png (optional)
-    """
     rp = _ensure_dirs(out_dir)
 
     metrics_path = run_dir / "metrics.json"
@@ -158,96 +83,164 @@ def build_report_from_run(
     drift = _load_json(drift_path) if _maybe(drift_path) else None
 
     backtest_summary_path = run_dir / "backtest" / "summary.json"
-    backtest_summary = _load_json(backtest_summary_path) if (include_backtest and _maybe(backtest_summary_path)) else None
+    backtest_summary = (
+        _load_json(backtest_summary_path)
+        if (include_backtest and _maybe(backtest_summary_path))
+        else None
+    )
 
-    # Optional: create a score distribution plot IF we have scoring output saved somewhere.
-    # (Your current pipeline doesn't persist proba arrays on train; so we keep this minimal and truthful.)
+    # ============================
+    # Explainability (canonical)
+    # ============================
 
-    # Write a small JSON summary (useful for README badges later)
+    explain_dir = run_dir / "explain"
+    explain_summary_path = explain_dir / "explain_summary.json"
+    explain_csv_path = explain_dir / "explanations.csv"
+    explain_fig_dir = explain_dir / "figures"
+
+    has_explain = _maybe(explain_summary_path) and _maybe(explain_csv_path)
+
+    explain_meta: dict[str, Any] | None = None
+    if has_explain:
+        try:
+            explain_meta = _load_json(explain_summary_path)
+        except Exception:
+            explain_meta = None
+
+    copied_explain_figs: list[Path] = []
+    if explain_fig_dir.exists():
+        for png in explain_fig_dir.glob("*.png"):
+            dst = rp.figures_dir / png.name
+            if _copy_if_exists(png, dst):
+                copied_explain_figs.append(dst)
+
+    # ============================
+    # Write summary JSON
+    # ============================
+
     summary = {
         "run_dir": str(run_dir),
-        "out_dir": str(out_dir),
-        "calibrated": metrics.get("calibrated", None),
-        "threshold": metrics.get("threshold", metrics.get("policy_threshold", None)),
-        "roc_auc": metrics.get("roc_auc", None),
-        "pr_auc": metrics.get("pr_auc", None),
-        "brier": metrics.get("brier", None),
-        "alert_rate": metrics.get("alert_rate", None),
-        "base_rate": metrics.get("base_rate", None),
-        "expected_cost": metrics.get("expected_cost", None),
+        "calibrated": metrics.get("calibrated"),
+        "threshold": metrics.get("threshold"),
+        "roc_auc": metrics.get("roc_auc"),
+        "pr_auc": metrics.get("pr_auc"),
+        "brier": metrics.get("brier"),
+        "alert_rate": metrics.get("alert_rate"),
+        "base_rate": metrics.get("base_rate"),
+        "expected_cost": metrics.get("expected_cost"),
         "has_drift": drift is not None,
         "has_backtest": backtest_summary is not None,
+        "has_explainability": has_explain,
     }
+
     with rp.report_json.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
-    # Build REPORT.md (elite but honest: only uses artifacts)
-    md = []
+    # ============================
+    # Build Markdown
+    # ============================
+
+    md: list[str] = []
+
     md.append("# Fraud Risk Scoring — Run Report\n")
     md.append(f"**Run directory:** `{run_dir}`  \n")
     md.append(f"**Report output:** `{out_dir}`  \n")
 
     md.append("\n## What this run produced\n")
-    md.append("- A trained classifier with probability calibration (if enabled)\n")
-    md.append("- A decision policy (threshold selection)\n")
-    md.append("- Evaluation metrics and drift signals (and walk-forward backtest if available)\n")
+    md.append("- A trained classifier with probability calibration (if enabled)")
+    md.append("- A decision policy (threshold selection)")
+    md.append("- Evaluation metrics and drift signals")
+    md.append("- Optional walk-forward backtest")
+    md.append("- Optional SHAP explainability\n")
 
     md.append("\n## Key metrics (test split)\n")
-    md.append(f"- Calibrated: **{_fmt(metrics.get('calibrated'))}**\n")
-    md.append(f"- Threshold: **{_fmt(metrics.get('threshold'))}**\n")
-    md.append(f"- Alert rate: **{_fmt(metrics.get('alert_rate'))}**\n")
-    md.append(f"- Base rate: **{_fmt(metrics.get('base_rate'))}**\n")
-    md.append(f"- ROC-AUC: **{_fmt(metrics.get('roc_auc'))}**\n")
-    md.append(f"- PR-AUC: **{_fmt(metrics.get('pr_auc'))}**\n")
-    md.append(f"- Brier score: **{_fmt(metrics.get('brier'))}**\n")
+    md.append(f"- Calibrated: **{_fmt(metrics.get('calibrated'))}**")
+    md.append(f"- Threshold: **{_fmt(metrics.get('threshold'))}**")
+    md.append(f"- Alert rate: **{_fmt(metrics.get('alert_rate'))}**")
+    md.append(f"- Base rate: **{_fmt(metrics.get('base_rate'))}**")
+    md.append(f"- ROC-AUC: **{_fmt(metrics.get('roc_auc'))}**")
+    md.append(f"- PR-AUC: **{_fmt(metrics.get('pr_auc'))}**")
+    md.append(f"- Brier score: **{_fmt(metrics.get('brier'))}**")
+
     if "expected_cost" in metrics:
-        md.append(f"- Expected cost: **{_fmt(metrics.get('expected_cost'))}**\n")
+        md.append(f"- Expected cost: **{_fmt(metrics.get('expected_cost'))}**")
 
-    # Confusion matrix if present
-    cm_keys = ["tn", "fp", "fn", "tp"]
-    if all(k in metrics for k in cm_keys):
+    # Confusion matrix
+    if all(k in metrics for k in ["tn", "fp", "fn", "tp"]):
         md.append("\n## Confusion matrix @ threshold\n")
-        md.append("| | Pred 0 | Pred 1 |\n|---:|---:|---:|\n")
-        md.append(f"| True 0 | {_fmt(metrics['tn'])} | {_fmt(metrics['fp'])} |\n")
-        md.append(f"| True 1 | {_fmt(metrics['fn'])} | {_fmt(metrics['tp'])} |\n")
+        md.append("| | Pred 0 | Pred 1 |")
+        md.append("|---:|---:|---:|")
+        md.append(f"| True 0 | {_fmt(metrics['tn'])} | {_fmt(metrics['fp'])} |")
+        md.append(f"| True 1 | {_fmt(metrics['fn'])} | {_fmt(metrics['tp'])} |")
 
+    # ============================
+    # Explainability Section
+    # ============================
+
+    md.append("\n## Explainability (SHAP)\n")
+
+    if not has_explain:
+        md.append(
+            "- Explainability artifacts not found (run `frs explain --run-dir <RUN_DIR> --input <CSV>`)."
+        )
+    else:
+        if explain_meta:
+            md.append(f"- Method: **{_fmt(explain_meta.get('method'))}**")
+            md.append(f"- Rows explained: **{_fmt(explain_meta.get('rows_explained'))}**")
+            md.append(f"- Top-k per row: **{_fmt(explain_meta.get('top_k'))}**")
+        md.append(f"- Explanations CSV: `{explain_csv_path}`")
+
+        if copied_explain_figs:
+            md.append("\n### Explainability figures\n")
+            for p in sorted(copied_explain_figs):
+                md.append(f"- ![]({p.relative_to(rp.out_dir).as_posix()})")
+
+    # ============================
     # Drift
+    # ============================
+
     md.append("\n## Drift checks\n")
     if drift is None:
-        md.append("- Drift artifacts not found for this run.\n")
+        md.append("- Drift artifacts not found.")
     else:
-        md.append("- Numeric drift: saved in `drift.json` (KS tests + effect size thresholds).\n")
-        md.append("- Probability drift: saved in `drift.json` (distribution shift signals).\n")
+        md.append("- Numeric drift: see `drift.json`.")
+        md.append("- Probability drift: see `drift.json`.")
 
+    # ============================
     # Backtest
+    # ============================
+
     md.append("\n## Walk-forward backtest (stability under time drift)\n")
+
     if backtest_summary is None:
-        md.append("- Backtest artifacts not found (run `frs backtest -c <config>` to generate them).\n")
+        md.append("- Backtest artifacts not found (run `frs backtest -c <config>`).")
     else:
-        md.append(f"- Folds: **{_fmt(backtest_summary.get('folds'))}**\n")
-        for k in ["roc_auc_mean", "pr_auc_mean", "brier_mean", "expected_cost_mean", "alert_rate_mean", "threshold_mean"]:
+        md.append(f"- Folds: **{_fmt(backtest_summary.get('folds'))}**")
+        for k in [
+            "roc_auc_mean",
+            "pr_auc_mean",
+            "brier_mean",
+            "expected_cost_mean",
+            "alert_rate_mean",
+            "threshold_mean",
+        ]:
             if k in backtest_summary:
-                md.append(f"- {k}: **{_fmt(backtest_summary.get(k))}**\n")
-        md.append("\nBacktest figures (if present) are in `figures/`.\n")
+                md.append(f"- {k}: **{_fmt(backtest_summary.get(k))}**")
 
-        # Copy backtest pngs if they exist
         bt_dir = run_dir / "backtest"
+        copied_bt_figs: list[Path] = []
         for png in bt_dir.glob("*.png"):
-            target = rp.figures_dir / png.name
-            try:
-                target.write_bytes(png.read_bytes())
-            except Exception:
-                pass
+            dst = rp.figures_dir / png.name
+            if _copy_if_exists(png, dst):
+                copied_bt_figs.append(dst)
 
-        # Embed copied pngs
-        copied = sorted(rp.figures_dir.glob("*.png"))
-        if copied:
+        if copied_bt_figs:
             md.append("\n### Backtest curves\n")
-            for p in copied:
-                md.append(f"- ![]({p.relative_to(rp.out_dir).as_posix()})\n")
+            for p in sorted(copied_bt_figs):
+                md.append(f"- ![]({p.relative_to(rp.out_dir).as_posix()})")
 
     md.append("\n## Reproducibility\n")
-    md.append("- This report is generated only from the saved run artifacts (`metrics.json`, `drift.json`, and optional backtest outputs).\n")
+    md.append("- This report is generated strictly from saved run artifacts (`metrics.json`, `drift.json`, backtest outputs, and explain outputs).")
 
     with rp.report_md.open("w", encoding="utf-8") as f:
         f.write("\n".join(md).strip() + "\n")

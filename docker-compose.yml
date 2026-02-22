@@ -1,0 +1,15 @@
+services:
+  frs-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      MPLCONFIGDIR: /tmp/matplotlib
+      HOME: /tmp
+      FRS_API_KEY: dev-local-key-123
+    volumes:
+      - ./runs:/app/runs
+      - ./reports:/app/reports
+    restart: unless-stopped
