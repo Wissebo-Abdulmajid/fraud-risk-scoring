@@ -169,9 +169,16 @@ def _read_csv_upload(file: UploadFile) -> pd.DataFrame:
 # Health
 # =========================================================
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {
+        "service": "FRS — Fraud / Risk Scoring System",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/health",
+        "version": app.version,
+        "auth": "x-api-key required for /score, /score-json, /score-batch-json, /explain, /report",
+    }
 
 
 # =========================================================

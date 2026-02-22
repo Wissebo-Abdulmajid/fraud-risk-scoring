@@ -22,9 +22,16 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy project
 COPY . /app
 RUN pip install -e .
+COPY assets/demo_run /app/runs/demo
 
 # Ensure folders exist (optional, but nice)
 RUN mkdir -p /app/runs /app/reports
+
+# make sure these exist
+RUN mkdir -p /app/runs /app/reports
+
+# copy demo run into container
+COPY runs/demo_run /app/runs/demo_run
 
 # Drop privileges
 USER app
