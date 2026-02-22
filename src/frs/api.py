@@ -169,21 +169,33 @@ def _read_csv_upload(file: UploadFile) -> pd.DataFrame:
 # Health
 # =========================================================
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+# =========================================================
+# v1 Endpoints
+# =========================================================
+from typing import Any
+
 @app.get("/")
 def root() -> dict[str, Any]:
     return {
         "service": "FRS — Fraud / Risk Scoring System",
         "status": "ok",
         "docs": "/docs",
+        "openapi": "/openapi.json",
         "health": "/health",
-        "version": app.version,
-        "auth": "x-api-key required for /score, /score-json, /score-batch-json, /explain, /report",
+        "endpoints": {
+            "score_csv": "/score",
+            "score_json": "/score-json",
+            "score_batch_json": "/score-batch-json",
+            "explain": "/explain",
+            "report": "/report",
+        },
+        "auth": "Send x-api-key header for protected endpoints.",
     }
-
-
-# =========================================================
-# v1 Endpoints
-# =========================================================
 
 @app.post("/v1/score-json", response_model=ScoreOneResponse, dependencies=[Depends(require_api_key)])
 def score_json(payload: ScoreEvent, run_dir: str = Query(...), threshold: float | None = None):
