@@ -1,90 +1,78 @@
-Fraud Risk Scoring (FRS)
-Calibrated Risk Modeling • Cost-Sensitive Policy • Drift Monitoring • Reproducible ML
+Fraud Risk Scoring System (FRS)
 
-A production-minded fraud / risk scoring CLI that goes beyond model accuracy.
+Calibrated Risk Modeling • Cost-Sensitive Policy • Drift Monitoring • Reproducible ML Engineering
 
-FRS trains a classifier, calibrates probabilities, selects thresholds via explicit decision policy, evaluates operational impact, monitors drift, and exports fully reproducible run artifacts.
+Author: Wissebo Abdulmajid
+Data Science & Computational intelligence at IIUM
 
-This project demonstrates real-world ML engineering for risk systems — not just model training.
+Overview
 
-##  What This System Does
+The Fraud Risk Scoring System (FRS) is a production-oriented machine learning framework for fraud detection and risk-based decision systems.
 
-FRS models fraud as a risk scoring pipeline:
+Rather than focusing solely on classification accuracy, FRS models fraud detection as an end-to-end operational risk system:
 
-Train a binary classifier
+Probability estimation
 
-(Optional) Calibrate probabilities
+Calibration of risk scores
 
-Select a decision threshold via policy
+Explicit decision policy
 
-Evaluate operational impact
+Cost-sensitive threshold optimization
 
-Monitor drift
+Alert-rate governance
 
-Save everything for reproducibility
+Drift monitoring
 
-Generate a portfolio-grade report
+Walk-forward backtesting
 
-## Why This Is Different
+Reproducible run artifacts
 
-Most fraud ML demos stop at ROC-AUC.
+Deployable scoring API
 
-FRS includes:
+The objective is to demonstrate how real-world financial risk systems are engineered beyond model training.
 
-✅ Probability calibration
+System Design Philosophy
 
-✅ Cost-sensitive threshold optimization
+FRS separates three critical layers:
 
-✅ Alert-rate guardrails
+Probability Modeling
 
-✅ Expected cost tracking
+Binary classifier (LightGBM / Logistic Regression)
 
-✅ Drift detection (features + scores)
+Imbalance-aware training
 
-✅ Walk-forward backtesting
+Calibration (Platt / Isotonic)
 
-✅ Reproducible run artifacts
+Decision Policy
 
-✅ Deployment-ready scoring CLI
+Cost-sensitive threshold optimization
 
-This mirrors how production fraud systems are designed.
+Top-K alert-rate strategy
 
-## Example Run (Real Output)
+Alert-rate guardrails
 
-From run: 2026-02-17_130730
+Prior-shift adjustment
 
-Test Performance
-Metric	Value
-ROC-AUC	0.9675
-PR-AUC	0.7812
-Brier Score	0.0004
-Threshold	0.07
-Alert Rate	0.0012
-Base Rate	0.0013
-Expected Cost	192.0
-Confusion Matrix @ Policy Threshold
-	Pred 0	Pred 1
-True 0	56874	12
-True 1	18	57
+Governance & Monitoring
 
-This demonstrates:
+Feature drift detection
 
-High ranking performance (ROC-AUC)
+Score distribution drift
 
-Strong precision-recall under class imbalance
+Walk-forward validation
 
-Operationally controlled alert rate
+Reproducible experiment artifacts
 
-Explicit cost-aware thresholding
+This separation reflects how risk systems are deployed in financial environments.
 
-## System Architecture
+System Architecture
 Raw Data
    ↓
 Feature Selection
    ↓
 Preprocessing Pipeline
    ↓
-Model (LightGBM / Logistic Regression)
+Classifier
    ↓
 Probability Calibration (optional)
    ↓
@@ -93,11 +81,38 @@ Policy Threshold Selection
 Risk Score + Alert Decision
    ↓
 Drift Monitoring + Reporting
+Example Model Performance
 
-🛠 CLI Commands
-Train
+From run: 2026-02-17_130730
+
+Metric	Value
+ROC-AUC	0.9675
+PR-AUC	0.7812
+Brier Score	0.0004
+Threshold	0.07
+Alert Rate	0.0012
+Base Rate	0.0013
+Expected Cost	192.0
+
+Confusion Matrix (Policy Threshold)
+
+	Pred 0	Pred 1
+True 0	56874	12
+True 1	18	57
+
+This demonstrates:
+
+Strong ranking under class imbalance
+
+Controlled operational alert rate
+
+Explicit cost-aware decision threshold
+
+Calibrated probability outputs
+
+Command Line Interface
+Train Model
 frs train -c configs/base.yaml
-
 
 Outputs:
 
@@ -105,11 +120,9 @@ runs/<timestamp>/
  ├─ bundle.joblib
  ├─ metrics.json
  ├─ drift.json
- └─ config.resolved.yaml
-
-Walk-Forward Backtest (Time Drift Stability)
+ ├─ config.resolved.yaml
+Walk-Forward Backtest
 frs backtest -c configs/base.yaml --folds 5
-
 
 Generates:
 
@@ -119,7 +132,7 @@ Threshold stability tracking
 
 Cost curves
 
-PR curves
+Precision-Recall curves
 
 Backtest summary statistics
 
@@ -129,7 +142,6 @@ frs score \
   --input data/new_data.csv \
   --output outputs/scored.csv \
   --summary outputs/summary.json
-
 
 Adds:
 
@@ -143,38 +155,113 @@ model_name
 
 run_dir
 
-Generate Report
+Generate Portfolio Report
 frs report \
   --run-dir runs/<RUN_ID> \
   --out reports/<RUN_ID>
 
-
-Creates:
+Produces:
 
 reports/<RUN_ID>/
  ├─ REPORT.md
- └─ report_summary.json
+ ├─ report_summary.json
 
+Reports are fully reproducible from saved artifacts.
 
-Fully reproducible from saved artifacts.
+Explainability (SHAP)
 
-⚙ Configuration (YAML-Driven)
+FRS supports SHAP-based explanation generation for scored datasets.
 
-All behavior is controlled via configs/base.yaml.
+Example:
 
-Includes:
+frs explain \
+  --method tree \
+  --run-dir runs/2026-02-17_130730 \
+  --input outputs/scored_sample.csv \
+  --out runs/2026-02-17_130730/explain/explanations.csv \
+  --summary runs/2026-02-17_130730/explain/explain_summary.json \
+  --figures runs/2026-02-17_130730/explain/figures \
+  --top-k 5 \
+  --max-rows 2000
+
+Artifacts include:
+
+Row-level feature attribution
+
+Aggregated importance summaries
+
+Visual diagnostic plots
+
+REST API Deployment
+
+FRS includes a hardened FastAPI service for production scoring.
+
+Endpoints
+
+GET /health
+
+POST /v1/score-json
+
+POST /v1/score-csv
+
+POST /v1/explain
+
+POST /v1/report
+
+Features
+
+API key authentication
+
+Path traversal protection
+
+Upload size limits
+
+In-memory model bundle caching
+
+Strict feature validation
+
+Versioned API structure
+
+Example:
+
+curl -X POST https://<deployment-url>/v1/score-json \
+  -H "x-api-key: <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d @payload.json
+Drift Monitoring
+
+FRS monitors:
+
+Feature Drift
+
+Kolmogorov-Smirnov tests
+
+Effect size tracking
+
+Probability Drift
+
+Validation vs test score distribution shift
+
+Results are stored in:
+
+runs/<RUN_ID>/drift.json
+Configuration (YAML Driven)
+
+All behavior is controlled through YAML configuration:
 
 Model hyperparameters
 
 Calibration method
 
-Threshold policy (cost or top-k)
+Threshold policy
 
-Alert-rate guardrails
+Cost parameters
 
-Prior-shift adjustment
+Alert rate constraints
 
-Walk-forward window definitions
+Backtest folds
+
+Prior shift adjustment
 
 This ensures:
 
@@ -182,134 +269,41 @@ No hidden parameters
 
 Fully reproducible experiments
 
-Clear governance over risk decisions
+Clear governance of decision rules
 
-## Drift Monitoring
+Dataset
 
-FRS detects:
+This project uses the public credit card fraud dataset:
 
-1) Feature Drift
+https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud
 
-KS tests on numeric features
+Due to file size limits, the dataset is not stored in this repository.
 
-Effect-size thresholds
-
-2) Probability Drift
-
-Distribution shift between validation and test probabilities
-
-Saved in:
-
-runs/<RUN_ID>/drift.json
-
-## Operational Policy Layer
-
-FRS separates:
-
-Probability estimation
-
-Decision policy
-
-Policy modes:
-
-cost → minimize expected cost
-
-top_k → fixed alert rate
-
-Optional constraints:
-
-min_alert_rate
-
-max_alert_rate
-
-threshold grid size
-
-prior shift correction
-
-This mirrors real financial risk systems.
-
-## Reproducibility
-
-Each run saves:
-
-Full pipeline
-
-Calibrator (if used)
-
-Decision policy
-
-Metrics
-
-Drift signals
-
-Resolved configuration
-
-Re-running report requires no retraining.
-
-## Dataset
-
-This project uses the public credit card fraud dataset (not stored in this repository due to GitHub file size limits).
-https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud 
-
-Place dataset locally at:
+Place locally at:
 
 data/creditcard.csv
+What This Project Demonstrates
 
-## What This Demonstrates
-
-This project demonstrates:
-
-Applied ML under extreme class imbalance
+Applied machine learning under extreme class imbalance
 
 Calibration-aware probability modeling
 
-Policy-driven decision thresholds
+Policy-driven threshold selection
 
 Cost-sensitive evaluation
 
-Time-aware validation
-
 Drift governance
 
-Reproducible ML engineering
+Walk-forward time validation
+
+Reproducible ML experimentation
 
 CLI-based deployable architecture
 
-## Roadmap (Next Upgrades)
-
-To make this production-grade enterprise-ready:
-
-SHAP explainability for alerts
-
-Automated PDF report export
-
-Model registry integration
-
-REST API wrapper (FastAPI)
-
-Monitoring dashboard
-
-CI test coverage expansion
-
-## Explainability (SHAP)
-
-FRS can generate SHAP-based explainability artifacts for a scored dataset.
-
-### 1) Score a CSV
-```bash
-frs score --run-dir runs/2026-02-17_130730 --input data/score_sample.csv --output outputs/scored_sample.csv --summary outputs/scoring_summary.json
-
-frs explain --method tree ^
-  --run-dir runs/2026-02-17_130730 ^
-  --input outputs/scored_sample.csv ^
-  --out runs/2026-02-17_130730/explain/explanations.csv ^
-  --summary runs/2026-02-17_130730/explain/explain_summary.json ^
-  --figures runs/2026-02-17_130730/explain/figures ^
-  --top-k 5 ^
-  --max-rows 2000
+Production-ready API wrapping
 
 @Author
 
-Wissebo Abdulmajid 
+Wissebo Abdulmajid
+Data Science & Computational Intelligence
 wissebo22@gmail.com
-Data Science & Applied ML Systems
